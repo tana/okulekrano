@@ -16,9 +16,12 @@ fn vs_main(vertex: VertexInput) -> VertexOutput {
     return out;
 }
 
+@group(0) @binding(0)
+var texture: texture_2d<f32>;
+@group(0) @binding(1)
+var texture_sampler: sampler;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Currently texture coordinates are just mapped to color
-    // TOOD: texture mapping
-    return vec4<f32>(in.tex_coords, 0.0, 1.0);
+    return textureSample(texture, texture_sampler, in.tex_coords);
 }

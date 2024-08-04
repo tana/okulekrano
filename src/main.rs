@@ -1,3 +1,4 @@
+mod capturer;
 mod renderer;
 mod winit_app;
 

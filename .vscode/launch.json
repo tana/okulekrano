@@ -22,7 +22,8 @@
             "args": [],
             "cwd": "${workspaceFolder}",
             "env": {
-                "RUST_LOG": "info"
+                "RUST_LOG": "info",
+                "WGPU_BACKEND": "d3d12"
             }
         },
         {

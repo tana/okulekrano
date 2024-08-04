@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
 use pollster::block_on;
 use wgpu::util::DeviceExt;
+
+use crate::capturer::Capturer;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -38,12 +42,14 @@ const QUAD_VERTICES: &[Vertex] = &[
 pub struct Renderer<'a> {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
     shader: wgpu::ShaderModule,
     vertex_buffer: wgpu::Buffer,
+    bind_group_layout: wgpu::BindGroupLayout,
     surface: Option<wgpu::Surface<'a>>,
     render_pipeline: Option<wgpu::RenderPipeline>,
+    capturer: Capturer,
 }
 
 impl<'a> Renderer<'a> {
@@ -70,6 +76,7 @@ impl<'a> Renderer<'a> {
             None,
         ))
         .unwrap();
+        let device = Arc::new(device);
 
         let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
@@ -79,6 +86,30 @@ impl<'a> Renderer<'a> {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let capturer = Capturer::new(Arc::clone(&device));
+
         Self {
             instance,
             adapter,
@@ -86,8 +117,10 @@ impl<'a> Renderer<'a> {
             queue,
             shader,
             vertex_buffer,
+            bind_group_layout,
             surface: None,
             render_pipeline: None,
+            capturer,
         }
     }
 
@@ -98,9 +131,38 @@ impl<'a> Renderer<'a> {
             .unwrap()
             .get_current_texture()
             .unwrap();
-        let view = output
+        let output_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let texture_view = self
+            .capturer
+            .get_current_texture()
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Texture Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Texture Bind Group"),
+            layout: &self.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
 
         let mut encoder = self
             .device
@@ -113,7 +175,7 @@ impl<'a> Renderer<'a> {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -131,6 +193,7 @@ impl<'a> Renderer<'a> {
             });
             render_pass.set_pipeline(self.render_pipeline.as_ref().unwrap());
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..(QUAD_VERTICES.len() as u32), 0..1);
         }
 
@@ -185,7 +248,7 @@ impl<'a> Renderer<'a> {
             self.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[],
+                    bind_group_layouts: &[&self.bind_group_layout],
                     push_constant_ranges: &[],
                 });
         self.render_pipeline = Some(self.device.create_render_pipeline(
