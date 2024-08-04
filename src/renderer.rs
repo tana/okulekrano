@@ -218,7 +218,7 @@ impl<'a> Renderer<'a> {
         let surface_format = surface_caps
             .formats
             .iter()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb()) // Use non-sRGB format because captured frames are already gamma-compensated
             .unwrap()
             .clone();
         self.surface.as_ref().unwrap().configure(
