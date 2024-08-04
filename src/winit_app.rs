@@ -56,6 +56,10 @@ impl<'a> ApplicationHandler for App<'a> {
             _ => (),
         }
     }
+
+    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.window.as_ref().unwrap().request_redraw();
+    }
 }
 
 pub fn run() {
