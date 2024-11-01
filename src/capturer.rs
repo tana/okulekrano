@@ -26,6 +26,7 @@ pub struct Capturer {
     state: State,
     glium_display: Arc<Display<WindowSurface>>,
     texture: Option<DmabufTexture>,
+    wl_buffer: Option<WlBuffer>,
 }
 
 #[derive(Default)]
@@ -61,13 +62,14 @@ impl Capturer {
             state,
             glium_display,
             texture: None,
+            wl_buffer: None,
         }
     }
 
     pub fn get_current_texture(&mut self) -> Arc<Texture2d> {
         // (4) Request the compositor to capture the screen.
         // It will fire several events such as `zwlr_screencopy_frame_v1::buffer_done`.
-        self.state.manager.as_ref().unwrap().capture_output(
+        let frame = self.state.manager.as_ref().unwrap().capture_output(
             1, // include mouse cursor
             self.state.output.as_ref().unwrap(),
             &self.queue.handle(),
@@ -84,7 +86,6 @@ impl Capturer {
                 .unwrap()
                 .create_params(&self.queue.handle(), ());
             self.queue.roundtrip(&mut self.state).unwrap();
-            println!("{:?}", dmabuf_params);
 
             // (6) Create a texture on GPU.
             self.texture = Some(DmabufTexture::new(
@@ -99,27 +100,22 @@ impl Capturer {
             // (7) Create Wayland buffer from the texture.
             let texture = self.texture.as_ref().unwrap();
             dmabuf_params.add(texture.fd(), 0, texture.offset(), texture.stride(), 0, 0);
-            let buffer = dmabuf_params.create_immed(
+            self.wl_buffer = Some(dmabuf_params.create_immed(
                 self.state.buf_width as i32,
                 self.state.buf_height as i32,
                 self.state.buf_format,
                 zwp_linux_buffer_params_v1::Flags::empty(),
                 &self.queue.handle(),
                 (),
-            );
+            ));
             self.queue.roundtrip(&mut self.state).unwrap();
-            println!("{:?}", buffer);
         }
 
-        todo!();
+        // (8) Copy the captured frame into the texture.
+        frame.copy(self.wl_buffer.as_ref().unwrap());
+        self.queue.roundtrip(&mut self.state).unwrap();
 
         self.texture.as_ref().unwrap().texture()
-    }
-}
-
-impl Drop for Capturer {
-    fn drop(&mut self) {
-        // self.stream.stop().unwrap();
     }
 }
 
@@ -139,7 +135,6 @@ impl Dispatch<WlRegistry, (), Self> for State {
                 interface,
                 version,
             } => {
-                println!("{}", interface);
                 if interface == WlOutput::interface().name {
                     state
                         .all_outputs
@@ -198,9 +193,6 @@ impl Dispatch<ZwlrScreencopyFrameV1, (), Self> for State {
                 state.buf_format = format;
                 state.buf_width = width;
                 state.buf_height = height;
-            }
-            zwlr_screencopy_frame_v1::Event::BufferDone => {
-                println!("done")
             }
             _ => (),
         }

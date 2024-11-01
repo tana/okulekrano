@@ -95,5 +95,7 @@ impl Renderer {
                 &Default::default(),
             )
             .unwrap();
+
+        frame.finish().unwrap();
     }
 }
