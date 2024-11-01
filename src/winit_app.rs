@@ -1,28 +1,28 @@
-use std::sync::Arc;
+use std::{num::NonZero, sync::Arc};
 
 use crate::renderer::Renderer;
+use glium::glutin::{
+    self,
+    config::ConfigTemplateBuilder,
+    context::{ContextApi, ContextAttributesBuilder},
+    prelude::{GlDisplay, NotCurrentGlContext},
+    surface::{SurfaceAttributesBuilder, WindowSurface},
+};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
+    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
     window::{Window, WindowAttributes, WindowButtons},
 };
 
-struct App<'a> {
+#[derive(Default)]
+struct App {
     window: Option<Arc<Window>>,
-    renderer: Renderer<'a>,
+    renderer: Option<Renderer>,
 }
 
-impl<'a> App<'a> {
-    fn new() -> Self {
-        Self {
-            window: None,
-            renderer: Renderer::new(),
-        }
-    }
-}
-
-impl<'a> ApplicationHandler for App<'a> {
+impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window: Arc<Window> = event_loop
             .create_window(
@@ -32,14 +32,39 @@ impl<'a> ApplicationHandler for App<'a> {
             )
             .unwrap()
             .into();
+        let rwh = window.window_handle().unwrap().as_raw();
+        let rdh = window.display_handle().unwrap().as_raw();
+        let width = NonZero::new(window.inner_size().width).unwrap();
+        let height = NonZero::new(window.inner_size().height).unwrap();
 
-        self.window = Some(Arc::clone(&window));
+        let glutin_display = glutin::display::Display::Egl(unsafe {
+            glutin::api::egl::display::Display::new(rdh).unwrap()
+        });
+        let config_template = ConfigTemplateBuilder::new().build();
+        let config = unsafe { glutin_display.find_configs(config_template) }
+            .unwrap()
+            .next()
+            .unwrap();
+        let context_attributes = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(Some(glutin::context::Version::new(3, 1))))
+            .build(Some(rwh));
+        let context = unsafe {
+            glutin_display
+                .create_context(&config, &context_attributes)
+                .unwrap()
+        };
+        let surface_attributes =
+            SurfaceAttributesBuilder::<WindowSurface>::new().build(rwh, width, height);
+        let window_surface =
+            unsafe { glutin_display.create_window_surface(&config, &surface_attributes) }.unwrap();
 
-        self.renderer.set_target(
-            Arc::clone(&window),
-            window.inner_size().width,
-            window.inner_size().height,
-        );
+        let context = context.make_current(&window_surface).unwrap();
+
+        let display = glium::Display::new(context, window_surface).unwrap();
+
+        self.window = Some(window);
+
+        self.renderer = Some(Renderer::new(Arc::new(display)));
     }
 
     fn window_event(
@@ -51,7 +76,9 @@ impl<'a> ApplicationHandler for App<'a> {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                self.renderer.render();
+                if let Some(ref mut renderer) = self.renderer {
+                    renderer.render();
+                }
             }
             _ => (),
         }
@@ -66,6 +93,6 @@ pub fn run() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new();
+    let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
 }

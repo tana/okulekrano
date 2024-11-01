@@ -1,7 +1,10 @@
+use glium::{glutin::surface::WindowSurface, Display, Texture2d};
 use std::sync::Arc;
 use wayland_client::{
     protocol::{
-        wl_buffer::WlBuffer, wl_output::WlOutput, wl_registry::{self, WlRegistry}
+        wl_buffer::WlBuffer,
+        wl_output::WlOutput,
+        wl_registry::{self, WlRegistry},
     },
     Connection, Dispatch, EventQueue, Proxy,
 };
@@ -21,7 +24,7 @@ mod texture;
 pub struct Capturer {
     queue: EventQueue<State>,
     state: State,
-    device: Arc<wgpu::Device>,
+    glium_display: Arc<Display<WindowSurface>>,
     texture: Option<DmabufTexture>,
 }
 
@@ -37,7 +40,7 @@ struct State {
 }
 
 impl Capturer {
-    pub fn new(device: Arc<wgpu::Device>) -> Self {
+    pub fn new(glium_display: Arc<Display<WindowSurface>>) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
 
@@ -56,12 +59,12 @@ impl Capturer {
         Self {
             queue,
             state,
-            device,
+            glium_display,
             texture: None,
         }
     }
 
-    pub fn get_current_texture(&mut self) -> Arc<wgpu::Texture> {
+    pub fn get_current_texture(&mut self) -> Arc<Texture2d> {
         // (4) Request the compositor to capture the screen.
         // It will fire several events such as `zwlr_screencopy_frame_v1::buffer_done`.
         self.state.manager.as_ref().unwrap().capture_output(
@@ -84,22 +87,14 @@ impl Capturer {
             println!("{:?}", dmabuf_params);
 
             // (6) Create a texture on GPU.
-            self.texture = Some(DmabufTexture::new(self.device.create_texture(
-                &wgpu::TextureDescriptor {
-                    label: Some("capture texture"),
-                    size: wgpu::Extent3d {
-                        width: self.state.buf_width,
-                        height: self.state.buf_height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
-                },
-            )));
+            self.texture = Some(DmabufTexture::new(
+                Texture2d::empty(
+                    self.glium_display.as_ref(),
+                    self.state.buf_width,
+                    self.state.buf_height,
+                )
+                .unwrap(),
+            ));
 
             // (7) Create Wayland buffer from the texture.
             let texture = self.texture.as_ref().unwrap();
@@ -244,5 +239,6 @@ impl Dispatch<WlBuffer, ()> for State {
         _data: &(),
         _conn: &Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }

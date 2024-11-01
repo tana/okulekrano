@@ -1,30 +1,20 @@
 use std::{os::{fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd}, raw::c_void}, sync::Arc};
 
+use glium::{GlObject, Texture2d};
 use khronos_egl::{ClientBuffer, EGLDisplay, EGLImage, ATTRIB_NONE, GL_TEXTURE_2D};
 
 type EglExportDmabufImageMesaFunc = unsafe extern "C" fn(EGLDisplay, EGLImage, *mut i32, *mut i32, *mut i32) -> bool;
 
 // DMABUF-capable texture
 pub struct DmabufTexture {
-    texture: Arc<wgpu::Texture>,
+    texture: Arc<Texture2d>,
     fd: OwnedFd,
     offset: u32,
     stride: u32,
 }
 
 impl DmabufTexture {
-    pub fn new(texture: wgpu::Texture) -> Self {
-        let gl_texture = unsafe {
-            texture.as_hal::<wgpu::core::api::Gles, _, _>(|hal_texture| {
-                let wgpu::hal::gles::TextureInner::Texture { raw, target: _ } =
-                    hal_texture.unwrap().inner
-                else {
-                    panic!("Not a texture")
-                };
-                raw.0.get()
-            })
-        };
-
+    pub fn new(texture: Texture2d) -> Self {
         let egl = khronos_egl::Instance::new(khronos_egl::Static);
 
         let egl_ctx = egl.get_current_context().unwrap();
@@ -35,7 +25,7 @@ impl DmabufTexture {
                 display,
                 egl_ctx,
                 GL_TEXTURE_2D as u32,
-                ClientBuffer::from_ptr(gl_texture as *mut c_void),
+                ClientBuffer::from_ptr(texture.get_id() as *mut c_void),
                 &[ATTRIB_NONE],
             )
             .unwrap()
@@ -57,7 +47,7 @@ impl DmabufTexture {
         Self { texture: Arc::new(texture), fd, offset: offset as u32, stride: stride as u32 }
     }
 
-    pub fn texture(&self) -> Arc<wgpu::Texture> {
+    pub fn texture(&self) -> Arc<Texture2d> {
         Arc::clone(&self.texture)
     }
 
