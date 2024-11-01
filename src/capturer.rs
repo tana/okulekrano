@@ -1,22 +1,28 @@
 use std::sync::Arc;
 use wayland_client::{
     protocol::{
-        wl_output::WlOutput,
-        wl_registry::{self, WlRegistry},
+        wl_buffer::WlBuffer, wl_output::WlOutput, wl_registry::{self, WlRegistry}
     },
     Connection, Dispatch, EventQueue, Proxy,
 };
 use wayland_protocols::wp::linux_dmabuf::zv1::client::{
-    zwp_linux_buffer_params_v1::ZwpLinuxBufferParamsV1, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
+    zwp_linux_buffer_params_v1::{self, ZwpLinuxBufferParamsV1},
+    zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
 };
 use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
 
+use self::texture::DmabufTexture;
+
+mod texture;
+
 pub struct Capturer {
     queue: EventQueue<State>,
     state: State,
+    device: Arc<wgpu::Device>,
+    texture: Option<DmabufTexture>,
 }
 
 #[derive(Default)]
@@ -31,7 +37,7 @@ struct State {
 }
 
 impl Capturer {
-    pub fn new<D: AsRef<wgpu::Device> + Send + Sync + 'static>(wgpu_device_ref: D) -> Self {
+    pub fn new(device: Arc<wgpu::Device>) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
 
@@ -47,7 +53,12 @@ impl Capturer {
         // (3) Select output.
         state.output = Some(state.all_outputs[0].clone()); // TODO
 
-        Self { queue, state }
+        Self {
+            queue,
+            state,
+            device,
+            texture: None,
+        }
     }
 
     pub fn get_current_texture(&mut self) -> Arc<wgpu::Texture> {
@@ -61,18 +72,53 @@ impl Capturer {
         );
         self.queue.roundtrip(&mut self.state).unwrap();
 
-        // (5) Create GPU buffer (first capture only).
-        let dmabuf_params = self
-            .state
-            .dmabuf_factory
-            .as_ref()
-            .unwrap()
-            .create_params(&self.queue.handle(), ());
-        self.queue.roundtrip(&mut self.state).unwrap();
+        if self.texture.is_none() {
+            // (5) Query size and format of the buffer.
+            let dmabuf_params = self
+                .state
+                .dmabuf_factory
+                .as_ref()
+                .unwrap()
+                .create_params(&self.queue.handle(), ());
+            self.queue.roundtrip(&mut self.state).unwrap();
+            println!("{:?}", dmabuf_params);
 
-        println!("{:?}", dmabuf_params);
+            // (6) Create a texture on GPU.
+            self.texture = Some(DmabufTexture::new(self.device.create_texture(
+                &wgpu::TextureDescriptor {
+                    label: Some("capture texture"),
+                    size: wgpu::Extent3d {
+                        width: self.state.buf_width,
+                        height: self.state.buf_height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+                },
+            )));
 
-        todo!()
+            // (7) Create Wayland buffer from the texture.
+            let texture = self.texture.as_ref().unwrap();
+            dmabuf_params.add(texture.fd(), 0, texture.offset(), texture.stride(), 0, 0);
+            let buffer = dmabuf_params.create_immed(
+                self.state.buf_width as i32,
+                self.state.buf_height as i32,
+                self.state.buf_format,
+                zwp_linux_buffer_params_v1::Flags::empty(),
+                &self.queue.handle(),
+                (),
+            );
+            self.queue.roundtrip(&mut self.state).unwrap();
+            println!("{:?}", buffer);
+        }
+
+        todo!();
+
+        self.texture.as_ref().unwrap().texture()
     }
 }
 
@@ -145,7 +191,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, (), Self> for State {
         event: <ZwlrScreencopyFrameV1 as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
-        qhandle: &wayland_client::QueueHandle<Self>,
+        _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
         // (4) Store information about capturing frame.
         match event {
@@ -174,7 +220,8 @@ impl Dispatch<ZwpLinuxDmabufV1, ()> for State {
         _data: &(),
         _conn: &Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
-    ) {}
+    ) {
+    }
 }
 
 impl Dispatch<ZwpLinuxBufferParamsV1, ()> for State {
@@ -182,6 +229,18 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ()> for State {
         _state: &mut Self,
         _proxy: &ZwpLinuxBufferParamsV1,
         _event: <ZwpLinuxBufferParamsV1 as Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &wayland_client::QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<WlBuffer, ()> for State {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlBuffer,
+        _event: <WlBuffer as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,

@@ -55,7 +55,7 @@ pub struct Renderer<'a> {
 impl<'a> Renderer<'a> {
     pub fn new() -> Self {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::PRIMARY),
+            backends: wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::GL),
             ..Default::default()
         });
 

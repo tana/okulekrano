@@ -137,6 +137,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "env_logger",
+ "khronos-egl",
  "log",
  "pollster",
  "wayland-client",
