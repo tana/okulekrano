@@ -1,4 +1,4 @@
-use std::{ffi::c_void, os::fd::AsFd, sync::Arc};
+use std::{os::fd::AsFd, sync::Arc};
 
 use glium::{
     glutin::surface::WindowSurface,
@@ -52,9 +52,6 @@ pub struct Renderer<T: AsFd> {
     index_buffer: NoIndices,
     program: Program,
     capturer: Capturer<T>,
-    #[allow(dead_code)]
-    egl: Arc<egl::Instance<egl::Static>>,
-    glow: Arc<glow::Context>,
 }
 
 impl<T: AsFd> Renderer<T> {
@@ -71,17 +68,10 @@ impl<T: AsFd> Renderer<T> {
 
         let egl = Arc::new(egl::Instance::new(khronos_egl::Static));
 
-        let glow = unsafe {
-            Arc::new(glow::Context::from_loader_function(|s| {
-                egl.get_proc_address(s).unwrap() as *const c_void
-            }))
-        };
-
         let capturer = Capturer::new(
             Arc::clone(&display),
             gbm,
             Arc::clone(&egl),
-            Arc::clone(&glow),
         );
 
         Self {
@@ -90,8 +80,6 @@ impl<T: AsFd> Renderer<T> {
             index_buffer,
             program,
             capturer,
-            egl,
-            glow,
         }
     }
 
@@ -100,21 +88,21 @@ impl<T: AsFd> Renderer<T> {
 
         frame.clear_color(0.0, 0.0, 1.0, 1.0);
 
-        self.capturer
-            .get_current_texture()
-            .with_bind(&self.glow, 0, || {
-                let uniforms = uniform! {};
+        let texture = self.capturer.get_current_texture();
 
-                frame
-                    .draw(
-                        &self.vertex_buffer,
-                        &self.index_buffer,
-                        &self.program,
-                        &uniforms,
-                        &Default::default(),
-                    )
-                    .unwrap();
-            });
+        let uniforms = uniform! {
+            tex: texture.as_ref(),
+        };
+
+        frame
+            .draw(
+                &self.vertex_buffer,
+                &self.index_buffer,
+                &self.program,
+                &uniforms,
+                &Default::default(),
+            )
+            .unwrap();
 
         frame.finish().unwrap();
     }

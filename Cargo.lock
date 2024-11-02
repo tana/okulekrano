@@ -139,7 +139,6 @@ dependencies = [
  "env_logger",
  "gbm",
  "glium",
- "glow",
  "khronos-egl",
  "log",
  "wayland-client",
@@ -590,8 +589,7 @@ dependencies = [
 [[package]]
 name = "glium"
 version = "0.36.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8cf52ce4f5ce1501bb056627f35484a819e812d1d93f0f3da413676421b1bbe0"
+source = "git+https://github.com/tana/glium.git?branch=ext-texture#f5f5411da9f20411d108efc905328f06083b18b3"
 dependencies = [
  "backtrace",
  "fnv",
@@ -602,18 +600,6 @@ dependencies = [
  "raw-window-handle",
  "smallvec",
  "winit",
-]
-
-[[package]]
-name = "glow"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e33cd8ff5e02c1a5463ec10a846c8f3166a3ae0382ec33de6a327ea6dd61c41d"
-dependencies = [
- "js-sys",
- "slotmap",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
@@ -1350,15 +1336,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "slotmap"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbff4acf519f630b3a3ddcfaea6c06b42174d9a44bc70c620e9ed1649d58b82a"
-dependencies = [
- "version_check",
 ]
 
 [[package]]

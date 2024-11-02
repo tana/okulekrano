@@ -64,7 +64,7 @@ impl ApplicationHandler for App {
 
         self.window = Some(window);
 
-        let gbm = gbm::Device::new(File::open("/dev/dri/renderD128").unwrap().into()).unwrap();
+        let gbm = gbm::Device::new(File::open("/dev/dri/card0").unwrap().into()).unwrap();
         self.renderer = Some(Renderer::new(Arc::new(display), gbm));
     }
 

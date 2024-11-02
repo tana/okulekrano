@@ -1,14 +1,8 @@
-use self::texture::ExternalTexture;
 use drm_fourcc::DrmFourcc;
-use gbm::BufferObjectFlags;
-use glium::{
-    glutin::surface::WindowSurface,
-    Display,
-};
-use std::{
-    os::fd::AsFd,
-    sync::Arc,
-};
+use gbm::{AsRaw as _, BufferObject, BufferObjectFlags};
+use glium::{glutin::surface::WindowSurface, texture::ExternalTexture, Display};
+use khronos_egl as egl;
+use std::{ffi::c_void, os::fd::{AsFd, OwnedFd}, sync::Arc};
 use wayland_client::{
     protocol::{
         wl_buffer::WlBuffer,
@@ -25,18 +19,17 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
-use khronos_egl as egl;
 
 mod texture;
 
 pub struct Capturer<T: AsFd> {
     queue: EventQueue<State>,
     state: State,
-    #[allow(dead_code)]
     glium_display: Arc<Display<WindowSurface>>,
     gbm: gbm::Device<T>,
     egl: Arc<egl::Instance<egl::Static>>,
-    glow: Arc<glow::Context>,
+    bo: Option<BufferObject<()>>,
+    bo_fd: Option<OwnedFd>,
     texture: Option<Arc<ExternalTexture>>,
     wl_buffer: Option<WlBuffer>,
 }
@@ -53,7 +46,11 @@ struct State {
 }
 
 impl<T: AsFd> Capturer<T> {
-    pub fn new(glium_display: Arc<Display<WindowSurface>>, gbm: gbm::Device<T>, egl: Arc<egl::Instance<egl::Static>>, glow: Arc<glow::Context>) -> Self {
+    pub fn new(
+        glium_display: Arc<Display<WindowSurface>>,
+        gbm: gbm::Device<T>,
+        egl: Arc<egl::Instance<egl::Static>>,
+    ) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
 
@@ -75,7 +72,8 @@ impl<T: AsFd> Capturer<T> {
             glium_display,
             gbm,
             egl,
-            glow,
+            bo: None,
+            bo_fd: None,
             texture: None,
             wl_buffer: None,
         }
@@ -119,20 +117,39 @@ impl<T: AsFd> Capturer<T> {
                     width,
                     height,
                     DrmFourcc::try_from(self.state.buf_format).unwrap(),
-                    BufferObjectFlags::RENDERING | BufferObjectFlags::LINEAR,
+                    BufferObjectFlags::empty(),
                 )
                 .unwrap();
-            let fd = bo.fd().unwrap();
+            let modifier: u64 = bo.modifier().unwrap().into();
+            let offset = bo.offset(0).unwrap();
+            let stride = bo.stride().unwrap();
+
+            self.bo_fd = Some(bo.fd_for_plane(0).unwrap());
+            self.bo = Some(bo);
+            let fd = self.bo_fd.as_ref().unwrap().as_fd();
+
+            // Create GL texture from GBM buffer
+            self.texture = Some(Arc::new(texture::texture_from_dmabuf(
+                self.glium_display.as_ref(),
+                &self.egl,
+                self.gbm.as_raw_mut() as *mut c_void,
+                &fd,
+                width,
+                height,
+                stride,
+                offset,
+                self.state.buf_format,
+                modifier,
+            )));
 
             // (7) Create Wayland buffer from the buffer.
-            let modifier: u64 = bo.modifier().unwrap().into();
             dmabuf_params.add(
-                fd.as_fd(),
+                fd,
                 0,
-                bo.offset(0).unwrap(),
-                bo.stride().unwrap(),
-                ((modifier & 0xFFFF0000) >> 32) as u32,
-                (modifier & 0xFFFF) as u32,
+                offset,
+                stride,
+                ((modifier & 0xFFFFFFFF00000000) >> 32) as u32,
+                (modifier & 0xFFFFFFFF) as u32,
             );
             self.wl_buffer = Some(dmabuf_params.create_immed(
                 width as i32,
@@ -144,18 +161,6 @@ impl<T: AsFd> Capturer<T> {
             ));
             self.queue.roundtrip(&mut self.state).unwrap();
             println!("{:?}", self.wl_buffer);
-
-            // Create GL texture from GBM buffer
-            self.texture = Some(Arc::new(ExternalTexture::from_dmabuf(
-                &self.egl,
-                &self.glow,
-                &fd,
-                width,
-                height,
-                bo.stride().unwrap(),
-                bo.offset(0).unwrap(),
-                self.state.buf_format,
-            )));
         }
 
         // (8) Copy the captured frame into the buffer.
