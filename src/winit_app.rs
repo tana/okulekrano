@@ -1,4 +1,4 @@
-use std::{num::NonZero, sync::Arc};
+use std::{fs::File, num::NonZero, os::fd::OwnedFd, sync::Arc};
 
 use crate::renderer::Renderer;
 use glium::glutin::{
@@ -19,7 +19,7 @@ use winit::{
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer>,
+    renderer: Option<Renderer<OwnedFd>>,
 }
 
 impl ApplicationHandler for App {
@@ -64,7 +64,8 @@ impl ApplicationHandler for App {
 
         self.window = Some(window);
 
-        self.renderer = Some(Renderer::new(Arc::new(display)));
+        let gbm = gbm::Device::new(File::open("/dev/dri/renderD128").unwrap().into()).unwrap();
+        self.renderer = Some(Renderer::new(Arc::new(display), gbm));
     }
 
     fn window_event(

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ffi::c_void, os::fd::AsFd, sync::Arc};
 
 use glium::{
     glutin::surface::WindowSurface,
@@ -6,6 +6,7 @@ use glium::{
     index::{NoIndices, PrimitiveType},
     uniform, Display, Program, Surface, VertexBuffer,
 };
+use khronos_egl as egl;
 
 use crate::capturer::Capturer;
 
@@ -45,16 +46,19 @@ const QUAD_VERTICES: &[Vertex] = &[
     }, // top right
 ];
 
-pub struct Renderer {
+pub struct Renderer<T: AsFd> {
     display: Arc<Display<WindowSurface>>,
     vertex_buffer: VertexBuffer<Vertex>,
     index_buffer: NoIndices,
     program: Program,
-    capturer: Capturer,
+    capturer: Capturer<T>,
+    #[allow(dead_code)]
+    egl: Arc<egl::Instance<egl::Static>>,
+    glow: Arc<glow::Context>,
 }
 
-impl Renderer {
-    pub fn new(display: Arc<Display<WindowSurface>>) -> Self {
+impl<T: AsFd> Renderer<T> {
+    pub fn new(display: Arc<Display<WindowSurface>>, gbm: gbm::Device<T>) -> Self {
         let vertex_buffer = VertexBuffer::new(display.as_ref(), QUAD_VERTICES).unwrap();
         let index_buffer = NoIndices(PrimitiveType::TrianglesList);
         let program = Program::from_source(
@@ -65,7 +69,20 @@ impl Renderer {
         )
         .unwrap();
 
-        let capturer = Capturer::new(Arc::clone(&display));
+        let egl = Arc::new(egl::Instance::new(khronos_egl::Static));
+
+        let glow = unsafe {
+            Arc::new(glow::Context::from_loader_function(|s| {
+                egl.get_proc_address(s).unwrap() as *const c_void
+            }))
+        };
+
+        let capturer = Capturer::new(
+            Arc::clone(&display),
+            gbm,
+            Arc::clone(&egl),
+            Arc::clone(&glow),
+        );
 
         Self {
             display,
@@ -73,28 +90,31 @@ impl Renderer {
             index_buffer,
             program,
             capturer,
+            egl,
+            glow,
         }
     }
 
     pub fn render(&mut self) {
         let mut frame = self.display.draw();
 
-        frame.clear_color(0.0, 0.0, 0.0, 1.0);
+        frame.clear_color(0.0, 0.0, 1.0, 1.0);
 
-        let texture = self.capturer.get_current_texture();
-        let uniforms = uniform! {
-            tex: texture.as_ref(),
-        };
+        self.capturer
+            .get_current_texture()
+            .with_bind(&self.glow, 0, || {
+                let uniforms = uniform! {};
 
-        frame
-            .draw(
-                &self.vertex_buffer,
-                &self.index_buffer,
-                &self.program,
-                &uniforms,
-                &Default::default(),
-            )
-            .unwrap();
+                frame
+                    .draw(
+                        &self.vertex_buffer,
+                        &self.index_buffer,
+                        &self.program,
+                        &uniforms,
+                        &Default::default(),
+                    )
+                    .unwrap();
+            });
 
         frame.finish().unwrap();
     }

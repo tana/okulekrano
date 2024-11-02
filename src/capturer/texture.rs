@@ -1,65 +1,70 @@
-use std::{os::{fd::{AsFd, BorrowedFd, FromRawFd, OwnedFd}, raw::c_void}, sync::Arc};
+use std::{ffi::c_void, os::fd::{AsFd, AsRawFd}, sync::OnceLock};
 
-use glium::{GlObject, Texture2d};
-use khronos_egl::{ClientBuffer, EGLDisplay, EGLImage, ATTRIB_NONE, GL_TEXTURE_2D};
+use glow::HasContext;
+use khronos_egl as egl;
 
-type EglExportDmabufImageMesaFunc = unsafe extern "C" fn(EGLDisplay, EGLImage, *mut i32, *mut i32, *mut i32) -> bool;
+type EglImageTargetTexture2dOesType = unsafe extern "C" fn(u32, *mut c_void);
 
-// DMABUF-capable texture
-pub struct DmabufTexture {
-    texture: Arc<Texture2d>,
-    fd: OwnedFd,
-    offset: u32,
-    stride: u32,
+static EGL_IMAGE_TARGET_TEXTURE_2D_OES: OnceLock<EglImageTargetTexture2dOesType> = OnceLock::new();
+
+// https://registry.khronos.org/EGL/extensions/EXT/EGL_EXT_image_dma_buf_import.txt
+const EGL_LINUX_DRM_FOURCC_EXT: u32 = 0x3271;
+const EGL_DMA_BUF_PLANE0_FD_EXT: u32 = 0x3272;
+const EGL_DMA_BUF_PLANE0_OFFSET_EXT: u32 = 0x3273;
+const EGL_DMA_BUF_PLANE0_PITCH_EXT: u32 = 0x3274;
+// https://registry.khronos.org/OpenGL/extensions/OES/OES_EGL_image_external.txt
+const TEXTURE_EXTERNAL_OES: u32 = 0x8D65;
+
+pub struct ExternalTexture {
+    texture: glow::NativeTexture,
 }
 
-impl DmabufTexture {
-    pub fn new(texture: Texture2d) -> Self {
-        let egl = khronos_egl::Instance::new(khronos_egl::Static);
+impl ExternalTexture {
+    pub fn from_dmabuf(egl: &egl::Instance<egl::Static>, glow: &glow::Context, fd: &impl AsFd, width: u32, height: u32, stride: u32, offset: u32, fourcc: u32) -> Self {
+        let egl_image_target_texture_2d_oes = EGL_IMAGE_TARGET_TEXTURE_2D_OES.get_or_init(|| unsafe {
+            std::mem::transmute(egl.get_proc_address("EGLImageTargetTexture2DOES"))
+        });
 
-        let egl_ctx = egl.get_current_context().unwrap();
         let display = egl.get_current_display().unwrap();
 
         let egl_image = unsafe {
             egl.create_image(
                 display,
-                egl_ctx,
-                GL_TEXTURE_2D as u32,
-                ClientBuffer::from_ptr(texture.get_id() as *mut c_void),
-                &[ATTRIB_NONE],
+                egl::Context::from_ptr(egl::NO_CONTEXT),
+                EGL_LINUX_DRM_FOURCC_EXT,
+                egl::ClientBuffer::from_ptr(0 as *mut c_void),
+                &[
+                    egl::WIDTH as usize, width as usize,
+                    egl::HEIGHT as usize, height as usize,
+                    EGL_LINUX_DRM_FOURCC_EXT as usize, fourcc as usize,
+                    EGL_DMA_BUF_PLANE0_FD_EXT as usize, fd.as_fd().as_raw_fd() as usize,
+                    EGL_DMA_BUF_PLANE0_OFFSET_EXT as usize, offset as usize,
+                    EGL_DMA_BUF_PLANE0_PITCH_EXT as usize, stride as usize,
+                    egl::ATTRIB_NONE,
+                ],
             )
             .unwrap()
         };
 
-        let mut offset: i32 = 0;
-        let mut stride: i32 = 0;
+        let texture = unsafe {
+            let texture = glow.create_texture().unwrap();
+            glow.bind_texture(TEXTURE_EXTERNAL_OES, Some(texture));
+            egl_image_target_texture_2d_oes(TEXTURE_EXTERNAL_OES, egl_image.as_ptr());
+            glow.bind_texture(TEXTURE_EXTERNAL_OES, None);
 
-        let fd = unsafe {
-            let export_dmabuf_image: EglExportDmabufImageMesaFunc = std::mem::transmute(egl.get_proc_address("eglExportDMABUFImageMESA").unwrap());
-            let mut fd = 0;
-            if !export_dmabuf_image(display.as_ptr(), egl_image.as_ptr(), &mut fd, &mut stride, &mut offset) {
-                panic!("DMABUF export failed")
-            }
-
-            OwnedFd::from_raw_fd(fd)
+            texture
         };
 
-        Self { texture: Arc::new(texture), fd, offset: offset as u32, stride: stride as u32 }
+        Self {
+            texture,
+        }
     }
 
-    pub fn texture(&self) -> Arc<Texture2d> {
-        Arc::clone(&self.texture)
-    }
+    pub fn with_bind<R>(&self, glow: &glow::Context, unit: u32, f: impl FnOnce() -> R) -> R {
+        unsafe { glow.bind_texture_unit(unit, Some(self.texture)); }
+        let ret = f();
+        unsafe { glow.bind_texture_unit(unit, None); }
 
-    pub fn fd(&self) -> BorrowedFd<'_> {
-        self.fd.as_fd()
-    }
-
-    pub fn offset(&self) -> u32 {
-        self.offset
-    }
-
-    pub fn stride(&self) -> u32 {
-        self.stride
+        ret
     }
 }

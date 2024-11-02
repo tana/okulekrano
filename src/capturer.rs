@@ -1,5 +1,14 @@
-use glium::{glutin::surface::WindowSurface, Display, Texture2d};
-use std::sync::Arc;
+use self::texture::ExternalTexture;
+use drm_fourcc::DrmFourcc;
+use gbm::BufferObjectFlags;
+use glium::{
+    glutin::surface::WindowSurface,
+    Display,
+};
+use std::{
+    os::fd::AsFd,
+    sync::Arc,
+};
 use wayland_client::{
     protocol::{
         wl_buffer::WlBuffer,
@@ -16,16 +25,19 @@ use wayland_protocols_wlr::screencopy::v1::client::{
     zwlr_screencopy_frame_v1::{self, ZwlrScreencopyFrameV1},
     zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1,
 };
-
-use self::texture::DmabufTexture;
+use khronos_egl as egl;
 
 mod texture;
 
-pub struct Capturer {
+pub struct Capturer<T: AsFd> {
     queue: EventQueue<State>,
     state: State,
+    #[allow(dead_code)]
     glium_display: Arc<Display<WindowSurface>>,
-    texture: Option<DmabufTexture>,
+    gbm: gbm::Device<T>,
+    egl: Arc<egl::Instance<egl::Static>>,
+    glow: Arc<glow::Context>,
+    texture: Option<Arc<ExternalTexture>>,
     wl_buffer: Option<WlBuffer>,
 }
 
@@ -40,8 +52,8 @@ struct State {
     buf_format: u32,
 }
 
-impl Capturer {
-    pub fn new(glium_display: Arc<Display<WindowSurface>>) -> Self {
+impl<T: AsFd> Capturer<T> {
+    pub fn new(glium_display: Arc<Display<WindowSurface>>, gbm: gbm::Device<T>, egl: Arc<egl::Instance<egl::Static>>, glow: Arc<glow::Context>) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
 
@@ -61,12 +73,15 @@ impl Capturer {
             queue,
             state,
             glium_display,
+            gbm,
+            egl,
+            glow,
             texture: None,
             wl_buffer: None,
         }
     }
 
-    pub fn get_current_texture(&mut self) -> Arc<Texture2d> {
+    pub fn get_current_texture(&mut self) -> Arc<ExternalTexture> {
         // (4) Request the compositor to capture the screen.
         // It will fire several events such as `zwlr_screencopy_frame_v1::buffer_done`.
         let frame = self.state.manager.as_ref().unwrap().capture_output(
@@ -78,6 +93,9 @@ impl Capturer {
         self.queue.roundtrip(&mut self.state).unwrap();
 
         if self.texture.is_none() {
+            let width = self.state.buf_width;
+            let height = self.state.buf_height;
+
             // (5) Query size and format of the buffer.
             let dmabuf_params = self
                 .state
@@ -87,35 +105,64 @@ impl Capturer {
                 .create_params(&self.queue.handle(), ());
             self.queue.roundtrip(&mut self.state).unwrap();
 
-            // (6) Create a texture on GPU.
-            self.texture = Some(DmabufTexture::new(
-                Texture2d::empty(
-                    self.glium_display.as_ref(),
-                    self.state.buf_width,
-                    self.state.buf_height,
-                )
-                .unwrap(),
-            ));
+            println!(
+                "{:?} {} {}",
+                DrmFourcc::try_from(self.state.buf_format),
+                width,
+                height
+            );
 
-            // (7) Create Wayland buffer from the texture.
-            let texture = self.texture.as_ref().unwrap();
-            dmabuf_params.add(texture.fd(), 0, texture.offset(), texture.stride(), 0, 0);
+            // (6) Create a buffer on GPU.
+            let bo = self
+                .gbm
+                .create_buffer_object::<()>(
+                    width,
+                    height,
+                    DrmFourcc::try_from(self.state.buf_format).unwrap(),
+                    BufferObjectFlags::RENDERING | BufferObjectFlags::LINEAR,
+                )
+                .unwrap();
+            let fd = bo.fd().unwrap();
+
+            // (7) Create Wayland buffer from the buffer.
+            let modifier: u64 = bo.modifier().unwrap().into();
+            dmabuf_params.add(
+                fd.as_fd(),
+                0,
+                bo.offset(0).unwrap(),
+                bo.stride().unwrap(),
+                ((modifier & 0xFFFF0000) >> 32) as u32,
+                (modifier & 0xFFFF) as u32,
+            );
             self.wl_buffer = Some(dmabuf_params.create_immed(
-                self.state.buf_width as i32,
-                self.state.buf_height as i32,
+                width as i32,
+                height as i32,
                 self.state.buf_format,
                 zwp_linux_buffer_params_v1::Flags::empty(),
                 &self.queue.handle(),
                 (),
             ));
             self.queue.roundtrip(&mut self.state).unwrap();
+            println!("{:?}", self.wl_buffer);
+
+            // Create GL texture from GBM buffer
+            self.texture = Some(Arc::new(ExternalTexture::from_dmabuf(
+                &self.egl,
+                &self.glow,
+                &fd,
+                width,
+                height,
+                bo.stride().unwrap(),
+                bo.offset(0).unwrap(),
+                self.state.buf_format,
+            )));
         }
 
-        // (8) Copy the captured frame into the texture.
+        // (8) Copy the captured frame into the buffer.
         frame.copy(self.wl_buffer.as_ref().unwrap());
         self.queue.roundtrip(&mut self.state).unwrap();
 
-        self.texture.as_ref().unwrap().texture()
+        Arc::clone(self.texture.as_ref().unwrap())
     }
 }
 
@@ -193,6 +240,9 @@ impl Dispatch<ZwlrScreencopyFrameV1, (), Self> for State {
                 state.buf_format = format;
                 state.buf_width = width;
                 state.buf_height = height;
+            }
+            zwlr_screencopy_frame_v1::Event::Failed => {
+                panic!("Capture failed");
             }
             _ => (),
         }
