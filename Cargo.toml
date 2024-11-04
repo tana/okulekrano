@@ -7,12 +7,18 @@ edition = "2021"
 drm-fourcc = "2.2.0"
 env_logger = "0.11.5"
 gbm = "0.16.0"
-glium = { git = "https://github.com/tana/glium.git", branch = "ext-texture" }
+glutin-winit = { version = "0.5.0", default-features = false, features = ["egl", "wayland"] }
 khronos-egl = { version = "6.0.0", features = ["static"] }
 log = "0.4.22"
 wayland-client = "0.31.7"
 wayland-protocols = { version = "0.32.5", features = ["client"] }
 wayland-protocols-wlr = { version = "0.3.5", features = ["client"] }
-winit = "0.30.4"
+winit = { version = "0.30.4", default-features = false, features = ["wayland"] }
+
+[dependencies.glium]
+git = "https://github.com/tana/glium.git"
+branch = "ext-texture"
+default-features = false
+features = ["glutin_backend"]
 
 [patch.crates-io]
