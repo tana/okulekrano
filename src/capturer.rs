@@ -2,10 +2,14 @@ use drm_fourcc::DrmFourcc;
 use gbm::{AsRaw as _, BufferObject, BufferObjectFlags};
 use glium::{glutin::surface::WindowSurface, texture::ExternalTexture, Display};
 use khronos_egl as egl;
-use std::{ffi::c_void, os::fd::{AsFd, OwnedFd}, sync::Arc};
+use std::{
+    ffi::c_void,
+    os::fd::{AsFd, OwnedFd},
+    sync::Arc,
+};
 use wayland_client::{
     protocol::{
-        wl_buffer::WlBuffer,
+        wl_buffer::{self, WlBuffer},
         wl_output::WlOutput,
         wl_registry::{self, WlRegistry},
     },
@@ -43,6 +47,8 @@ struct State {
     buf_width: u32,
     buf_height: u32,
     buf_format: u32,
+    ready: bool,
+    released: bool,
 }
 
 impl<T: AsFd> Capturer<T> {
@@ -80,6 +86,9 @@ impl<T: AsFd> Capturer<T> {
     }
 
     pub fn get_current_texture(&mut self) -> Arc<ExternalTexture> {
+        self.state.ready = false;
+        self.state.released = false;
+
         // (4) Request the compositor to capture the screen.
         // It will fire several events such as `zwlr_screencopy_frame_v1::buffer_done`.
         let frame = self.state.manager.as_ref().unwrap().capture_output(
@@ -165,7 +174,16 @@ impl<T: AsFd> Capturer<T> {
 
         // (8) Copy the captured frame into the buffer.
         frame.copy(self.wl_buffer.as_ref().unwrap());
-        self.queue.roundtrip(&mut self.state).unwrap();
+        self.queue.flush().unwrap();
+        while !self.state.ready {
+            self.queue.blocking_dispatch(&mut self.state).unwrap();
+        }
+
+        frame.destroy();
+        self.queue.flush().unwrap();
+        while !self.state.released {
+            self.queue.blocking_dispatch(&mut self.state).unwrap();
+        }
 
         Arc::clone(self.texture.as_ref().unwrap())
     }
@@ -249,6 +267,9 @@ impl Dispatch<ZwlrScreencopyFrameV1, (), Self> for State {
             zwlr_screencopy_frame_v1::Event::Failed => {
                 panic!("Capture failed");
             }
+            zwlr_screencopy_frame_v1::Event::Ready { .. } => {
+                state.ready = true;
+            }
             _ => (),
         }
     }
@@ -280,12 +301,18 @@ impl Dispatch<ZwpLinuxBufferParamsV1, ()> for State {
 
 impl Dispatch<WlBuffer, ()> for State {
     fn event(
-        _state: &mut Self,
+        state: &mut Self,
         _proxy: &WlBuffer,
-        _event: <WlBuffer as Proxy>::Event,
+        event: <WlBuffer as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
+        match event {
+            wl_buffer::Event::Release => {
+                state.released = true;
+            }
+            _ => (),
+        }
     }
 }

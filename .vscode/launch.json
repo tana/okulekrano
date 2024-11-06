@@ -5,45 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "lldb",
+            "type": "lldb-dap",
             "request": "launch",
-            "name": "Debug executable 'ar-glass-screen'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=ar-glass-screen",
-                    "--package=ar-glass-screen"
-                ],
-                "filter": {
-                    "name": "ar-glass-screen",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}",
-            "env": {
-                "RUST_LOG": "info",
-                "WGPU_BACKEND": "d3d12"
-            }
+            "name": "Launch",
+            "program": "${workspaceRoot}/target/debug/ar-glass-screen",
+            "args": ["2>&1"],
+            "env": [
+                "WAYLAND_DISPLAY=wayland-0"
+            ],
+            "cwd": "${workspaceRoot}"
         },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'ar-glass-screen'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=ar-glass-screen",
-                    "--package=ar-glass-screen"
-                ],
-                "filter": {
-                    "name": "ar-glass-screen",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        }
     ]
 }

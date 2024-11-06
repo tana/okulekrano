@@ -68,11 +68,7 @@ impl<T: AsFd> Renderer<T> {
 
         let egl = Arc::new(egl::Instance::new(khronos_egl::Static));
 
-        let capturer = Capturer::new(
-            Arc::clone(&display),
-            gbm,
-            Arc::clone(&egl),
-        );
+        let capturer = Capturer::new(Arc::clone(&display), gbm, Arc::clone(&egl));
 
         Self {
             display,
@@ -84,11 +80,11 @@ impl<T: AsFd> Renderer<T> {
     }
 
     pub fn render(&mut self) {
+        let texture = self.capturer.get_current_texture();
+
         let mut frame = self.display.draw();
 
         frame.clear_color(0.0, 0.0, 1.0, 1.0);
-
-        let texture = self.capturer.get_current_texture();
 
         let uniforms = uniform! {
             tex: texture.as_ref(),
