@@ -55,7 +55,11 @@ pub struct Renderer<T: AsFd> {
 }
 
 impl<T: AsFd> Renderer<T> {
-    pub fn new(display: Arc<Display<WindowSurface>>, gbm: gbm::Device<T>) -> Self {
+    pub fn new(
+        display: Arc<Display<WindowSurface>>,
+        gbm: gbm::Device<T>,
+        output_to_capture: Option<&str>,
+    ) -> Self {
         let vertex_buffer = VertexBuffer::new(display.as_ref(), QUAD_VERTICES).unwrap();
         let index_buffer = NoIndices(PrimitiveType::TrianglesList);
         let program = Program::from_source(
@@ -68,7 +72,12 @@ impl<T: AsFd> Renderer<T> {
 
         let egl = Arc::new(egl::Instance::new(khronos_egl::Static));
 
-        let capturer = Capturer::new(Arc::clone(&display), gbm, Arc::clone(&egl));
+        let capturer = Capturer::new(
+            Arc::clone(&display),
+            gbm,
+            Arc::clone(&egl),
+            output_to_capture,
+        );
 
         Self {
             display,

@@ -3,6 +3,7 @@ use gbm::{AsRaw as _, BufferObject, BufferObjectFlags};
 use glium::{glutin::surface::WindowSurface, texture::ExternalTexture, Display};
 use khronos_egl as egl;
 use std::{
+    collections::HashMap,
     ffi::c_void,
     os::fd::{AsFd, OwnedFd},
     sync::Arc,
@@ -10,7 +11,7 @@ use std::{
 use wayland_client::{
     protocol::{
         wl_buffer::{self, WlBuffer},
-        wl_output::WlOutput,
+        wl_output::{self, WlOutput},
         wl_registry::{self, WlRegistry},
     },
     Connection, Dispatch, EventQueue, Proxy,
@@ -41,6 +42,7 @@ pub struct Capturer<T: AsFd> {
 #[derive(Default)]
 struct State {
     all_outputs: Vec<WlOutput>,
+    output_from_name: HashMap<String, WlOutput>,
     output: Option<WlOutput>,
     manager: Option<ZwlrScreencopyManagerV1>,
     dmabuf_factory: Option<ZwpLinuxDmabufV1>,
@@ -56,6 +58,7 @@ impl<T: AsFd> Capturer<T> {
         glium_display: Arc<Display<WindowSurface>>,
         gbm: gbm::Device<T>,
         egl: Arc<egl::Instance<egl::Static>>,
+        output_to_capture: Option<&str>,
     ) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
@@ -69,8 +72,29 @@ impl<T: AsFd> Capturer<T> {
         let _registry = display.get_registry(&queue.handle(), ());
         queue.roundtrip(&mut state).unwrap();
 
+        // Receive names (and other properties) of each output
+        while state.output_from_name.len() < state.all_outputs.len() {
+            queue.blocking_dispatch(&mut state).unwrap();
+        }
+
+        for output_name in state.output_from_name.keys() {
+            println!("Output: {}", output_name);
+        }
+
         // (3) Select output.
-        state.output = Some(state.all_outputs[0].clone()); // TODO
+        let output = if let Some(output_to_capture) = output_to_capture {
+            let output = state
+                .output_from_name
+                .iter()
+                .find(|(name, _)| *name == output_to_capture)
+                .unwrap();
+            println!("Using {}", output.0);
+            
+            output.1.clone()
+        } else {
+            state.all_outputs[0].clone()
+        };
+        state.output = Some(output);
 
         Self {
             queue,
@@ -222,13 +246,19 @@ impl Dispatch<WlRegistry, (), Self> for State {
 
 impl Dispatch<WlOutput, (), Self> for State {
     fn event(
-        _state: &mut Self,
-        _proxy: &WlOutput,
-        _event: <WlOutput as wayland_client::Proxy>::Event,
+        state: &mut Self,
+        proxy: &WlOutput,
+        event: <WlOutput as wayland_client::Proxy>::Event,
         _data: &(),
         _conn: &Connection,
         _qhandle: &wayland_client::QueueHandle<Self>,
     ) {
+        match event {
+            wl_output::Event::Name { name } => {
+                state.output_from_name.insert(name, proxy.clone());
+            }
+            _ => (),
+        }
     }
 }
 

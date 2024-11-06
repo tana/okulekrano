@@ -20,6 +20,7 @@ use winit::{
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer<OwnedFd>>,
+    output_to_capture: Option<String>,
 }
 
 impl ApplicationHandler for App {
@@ -65,7 +66,12 @@ impl ApplicationHandler for App {
         self.window = Some(window);
 
         let gbm = gbm::Device::new(File::open("/dev/dri/card0").unwrap().into()).unwrap();
-        self.renderer = Some(Renderer::new(Arc::new(display), gbm));
+
+        self.renderer = Some(Renderer::new(
+            Arc::new(display),
+            gbm,
+            self.output_to_capture.as_ref().map(|s| s.as_str()),
+        ));
     }
 
     fn window_event(
@@ -95,5 +101,11 @@ pub fn run() {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut app = App::default();
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 {
+        app.output_to_capture = Some(args[1].clone());
+    }
+
     event_loop.run_app(&mut app).unwrap();
 }
