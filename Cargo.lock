@@ -122,6 +122,7 @@ dependencies = [
  "drm-fourcc",
  "env_logger",
  "gbm",
+ "gl",
  "glium",
  "glutin-winit",
  "khronos-egl",
@@ -533,6 +534,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ecd4077b5ae9fd2e9e169b102c6c330d0605168eb0e8bf79952b256dbefffd"
 
 [[package]]
+name = "gl"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a94edab108827d67608095e269cf862e60d920f144a5026d3dbcfd8b877fb404"
+dependencies = [
+ "gl_generator",
+]
+
+[[package]]
 name = "gl_generator"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -546,7 +556,8 @@ dependencies = [
 [[package]]
 name = "glium"
 version = "0.36.0"
-source = "git+https://github.com/tana/glium.git?branch=ext-texture#f5f5411da9f20411d108efc905328f06083b18b3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cf52ce4f5ce1501bb056627f35484a819e812d1d93f0f3da413676421b1bbe0"
 dependencies = [
  "backtrace",
  "fnv",

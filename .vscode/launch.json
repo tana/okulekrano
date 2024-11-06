@@ -9,9 +9,9 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceRoot}/target/debug/ar-glass-screen",
-            "args": ["HEADLESS-2", "2>&1"],
+            "args": ["NOOP-1", "2>&1"],
             "env": [
-                "WAYLAND_DISPLAY=wayland-1"
+                "WAYLAND_DISPLAY=wayland-0"
             ],
             "cwd": "${workspaceRoot}"
         },

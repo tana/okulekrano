@@ -1,6 +1,6 @@
 use drm_fourcc::DrmFourcc;
 use gbm::{AsRaw as _, BufferObject, BufferObjectFlags};
-use glium::{glutin::surface::WindowSurface, texture::ExternalTexture, Display};
+use glium::{glutin::surface::WindowSurface, Display, Texture2d};
 use khronos_egl as egl;
 use std::{
     collections::HashMap,
@@ -35,7 +35,7 @@ pub struct Capturer<T: AsFd> {
     egl: Arc<egl::Instance<egl::Static>>,
     bo: Option<BufferObject<()>>,
     bo_fd: Option<OwnedFd>,
-    texture: Option<Arc<ExternalTexture>>,
+    texture: Option<Arc<Texture2d>>,
     wl_buffer: Option<WlBuffer>,
 }
 
@@ -109,7 +109,7 @@ impl<T: AsFd> Capturer<T> {
         }
     }
 
-    pub fn get_current_texture(&mut self) -> Arc<ExternalTexture> {
+    pub fn get_current_texture(&mut self) -> Arc<Texture2d> {
         self.state.ready = false;
         self.state.released = false;
 
