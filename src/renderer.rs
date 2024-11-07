@@ -1,4 +1,4 @@
-use std::{os::fd::AsFd, sync::Arc};
+use std::sync::Arc;
 
 use glium::{
     glutin::surface::WindowSurface,
@@ -6,7 +6,6 @@ use glium::{
     index::{NoIndices, PrimitiveType},
     uniform, Display, Program, Surface, VertexBuffer,
 };
-use khronos_egl as egl;
 
 use crate::capturer::Capturer;
 
@@ -46,18 +45,17 @@ const QUAD_VERTICES: &[Vertex] = &[
     }, // top right
 ];
 
-pub struct Renderer<T: AsFd> {
+pub struct Renderer {
     display: Arc<Display<WindowSurface>>,
     vertex_buffer: VertexBuffer<Vertex>,
     index_buffer: NoIndices,
     program: Program,
-    capturer: Capturer<T>,
+    capturer: Capturer,
 }
 
-impl<T: AsFd> Renderer<T> {
+impl Renderer {
     pub fn new(
         display: Arc<Display<WindowSurface>>,
-        gbm: gbm::Device<T>,
         output_to_capture: Option<&str>,
     ) -> Self {
         let vertex_buffer = VertexBuffer::new(display.as_ref(), QUAD_VERTICES).unwrap();
@@ -70,12 +68,8 @@ impl<T: AsFd> Renderer<T> {
         )
         .unwrap();
 
-        let egl = Arc::new(egl::Instance::new(khronos_egl::Static));
-
         let capturer = Capturer::new(
             Arc::clone(&display),
-            gbm,
-            Arc::clone(&egl),
             output_to_capture,
         );
 

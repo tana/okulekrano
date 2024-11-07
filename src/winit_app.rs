@@ -1,4 +1,4 @@
-use std::{fs::File, num::NonZero, os::fd::OwnedFd, sync::Arc};
+use std::{num::NonZero, sync::Arc};
 
 use crate::renderer::Renderer;
 use glium::glutin::{
@@ -19,7 +19,7 @@ use winit::{
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
-    renderer: Option<Renderer<OwnedFd>>,
+    renderer: Option<Renderer>,
     output_to_capture: Option<String>,
 }
 
@@ -65,11 +65,8 @@ impl ApplicationHandler for App {
 
         self.window = Some(window);
 
-        let gbm = gbm::Device::new(File::open("/dev/dri/card0").unwrap().into()).unwrap();
-
         self.renderer = Some(Renderer::new(
             Arc::new(display),
-            gbm,
             self.output_to_capture.as_ref().map(|s| s.as_str()),
         ));
     }

@@ -1,13 +1,10 @@
 use drm_fourcc::DrmFourcc;
-use gbm::{AsRaw as _, BufferObject, BufferObjectFlags};
 use glium::{glutin::surface::WindowSurface, Display, Texture2d};
-use khronos_egl as egl;
 use std::{
     collections::HashMap,
-    ffi::c_void,
-    os::fd::{AsFd, OwnedFd},
     sync::Arc,
 };
+use texture::DmabufTexture;
 use wayland_client::{
     protocol::{
         wl_buffer::{self, WlBuffer},
@@ -27,15 +24,11 @@ use wayland_protocols_wlr::screencopy::v1::client::{
 
 mod texture;
 
-pub struct Capturer<T: AsFd> {
+pub struct Capturer {
     queue: EventQueue<State>,
     state: State,
     glium_display: Arc<Display<WindowSurface>>,
-    gbm: gbm::Device<T>,
-    egl: Arc<egl::Instance<egl::Static>>,
-    bo: Option<BufferObject<()>>,
-    bo_fd: Option<OwnedFd>,
-    texture: Option<Arc<Texture2d>>,
+    texture: Option<DmabufTexture>,
     wl_buffer: Option<WlBuffer>,
 }
 
@@ -53,11 +46,9 @@ struct State {
     released: bool,
 }
 
-impl<T: AsFd> Capturer<T> {
+impl Capturer {
     pub fn new(
         glium_display: Arc<Display<WindowSurface>>,
-        gbm: gbm::Device<T>,
-        egl: Arc<egl::Instance<egl::Static>>,
         output_to_capture: Option<&str>,
     ) -> Self {
         let conn = Connection::connect_to_env().unwrap();
@@ -89,7 +80,7 @@ impl<T: AsFd> Capturer<T> {
                 .find(|(name, _)| *name == output_to_capture)
                 .unwrap();
             println!("Using {}", output.0);
-            
+
             output.1.clone()
         } else {
             state.all_outputs[0].clone()
@@ -100,10 +91,6 @@ impl<T: AsFd> Capturer<T> {
             queue,
             state,
             glium_display,
-            gbm,
-            egl,
-            bo: None,
-            bo_fd: None,
             texture: None,
             wl_buffer: None,
         }
@@ -144,46 +131,18 @@ impl<T: AsFd> Capturer<T> {
             );
 
             // (6) Create a buffer on GPU.
-            let bo = self
-                .gbm
-                .create_buffer_object::<()>(
-                    width,
-                    height,
-                    DrmFourcc::try_from(self.state.buf_format).unwrap(),
-                    BufferObjectFlags::empty(),
+            self.texture = Some(DmabufTexture::new(
+                Texture2d::empty(
+                    self.glium_display.as_ref(),
+                    self.state.buf_width,
+                    self.state.buf_height,
                 )
-                .unwrap();
-            let modifier: u64 = bo.modifier().unwrap().into();
-            let offset = bo.offset(0).unwrap();
-            let stride = bo.stride().unwrap();
-
-            self.bo_fd = Some(bo.fd_for_plane(0).unwrap());
-            self.bo = Some(bo);
-            let fd = self.bo_fd.as_ref().unwrap().as_fd();
-
-            // Create GL texture from GBM buffer
-            self.texture = Some(Arc::new(texture::texture_from_dmabuf(
-                self.glium_display.as_ref(),
-                &self.egl,
-                self.gbm.as_raw_mut() as *mut c_void,
-                &fd,
-                width,
-                height,
-                stride,
-                offset,
-                self.state.buf_format,
-                modifier,
-            )));
+                .unwrap(),
+            ));
 
             // (7) Create Wayland buffer from the buffer.
-            dmabuf_params.add(
-                fd,
-                0,
-                offset,
-                stride,
-                ((modifier & 0xFFFFFFFF00000000) >> 32) as u32,
-                (modifier & 0xFFFFFFFF) as u32,
-            );
+            let texture = self.texture.as_ref().unwrap();
+            dmabuf_params.add(texture.fd(), 0, texture.offset(), texture.stride(), 0, 0);
             self.wl_buffer = Some(dmabuf_params.create_immed(
                 width as i32,
                 height as i32,
@@ -209,7 +168,7 @@ impl<T: AsFd> Capturer<T> {
             self.queue.blocking_dispatch(&mut self.state).unwrap();
         }
 
-        Arc::clone(self.texture.as_ref().unwrap())
+        self.texture.as_ref().unwrap().texture()
     }
 }
 
