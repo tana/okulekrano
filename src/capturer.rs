@@ -1,9 +1,6 @@
 use drm_fourcc::DrmFourcc;
 use glium::{glutin::surface::WindowSurface, Display, Texture2d};
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use texture::DmabufTexture;
 use wayland_client::{
     protocol::{
@@ -123,12 +120,11 @@ impl Capturer {
                 .create_params(&self.queue.handle(), ());
             self.queue.roundtrip(&mut self.state).unwrap();
 
-            println!(
-                "{:?} {} {}",
-                DrmFourcc::try_from(self.state.buf_format),
-                width,
-                height
-            );
+            let buf_format = DrmFourcc::try_from(self.state.buf_format).unwrap();
+            println!("{:?} {} {}", buf_format, width, height);
+            if buf_format != DrmFourcc::Xrgb8888 {
+                panic!("Unsupported buffer format requested");
+            }
 
             // (6) Create a buffer on GPU.
             self.texture = Some(DmabufTexture::new(
@@ -142,11 +138,23 @@ impl Capturer {
 
             // (7) Create Wayland buffer from the buffer.
             let texture = self.texture.as_ref().unwrap();
-            dmabuf_params.add(texture.fd(), 0, texture.offset(), texture.stride(), 0, 0);
+            println!("{:?} {:?}", texture.fourcc(), texture.modifier());
+            if texture.fourcc() != DrmFourcc::Abgr8888 {
+                panic!("Unsupported DMA-BUF format")
+            }
+            let modifier: u64 = texture.modifier().into();
+            dmabuf_params.add(
+                texture.fd(),
+                0,
+                texture.offset(),
+                texture.stride(),
+                (modifier >> 32) as u32,
+                (modifier & 0xFFFFFFFF) as u32,
+            );
             self.wl_buffer = Some(dmabuf_params.create_immed(
                 width as i32,
                 height as i32,
-                self.state.buf_format,
+                DrmFourcc::Xrgb8888 as u32, // Writing XRGB8888 into ABGR8888, but correctable in shader.
                 zwp_linux_buffer_params_v1::Flags::empty(),
                 &self.queue.handle(),
                 (),
