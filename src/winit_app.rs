@@ -1,6 +1,6 @@
 use std::{num::NonZero, sync::Arc};
 
-use crate::renderer::Renderer;
+use crate::{glasses::GlassesController, renderer::Renderer};
 use glium::glutin::{
     self,
     config::ConfigTemplateBuilder,
@@ -17,11 +17,11 @@ use winit::{
     window::{Window, WindowAttributes, WindowButtons},
 };
 
-#[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     output_to_capture: Option<String>,
+    glasses: GlassesController,
 }
 
 impl ApplicationHandler for App {
@@ -82,6 +82,9 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
+                    // TODO:
+                    println!("{}", self.glasses.get_pose());
+
                     renderer.set_transform(&Scale3::new(2.0, 2.0, 2.0).to_homogeneous());
                     renderer.render();
                 }
@@ -99,12 +102,20 @@ pub fn run() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::default();
-
     let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 2 {
-        app.output_to_capture = Some(args[1].clone());
-    }
+
+    let output_to_capture = if args.len() >= 2 {
+        Some(args[1].clone())
+    } else {
+        None
+    };
+
+    let mut app = App {
+        window: None,
+        renderer: None,
+        output_to_capture,
+        glasses: GlassesController::new(),
+    };
 
     event_loop.run_app(&mut app).unwrap();
 }

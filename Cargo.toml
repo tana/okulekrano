@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+ahrs = "0.7.0"
+ar-drivers = "0.4.3"
 drm-fourcc = "2.2.0"
 env_logger = "0.11.5"
 glium = { version = "0.36.0", default-features = false, features = ["glutin_backend"] }
