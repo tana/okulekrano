@@ -8,6 +8,7 @@ use glium::glutin::{
     prelude::{GlDisplay, NotCurrentGlContext},
     surface::{SurfaceAttributesBuilder, WindowSurface},
 };
+use na::Scale3;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -81,6 +82,7 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
+                    renderer.set_transform(&Scale3::new(2.0, 2.0, 2.0).to_homogeneous());
                     renderer.render();
                 }
             }

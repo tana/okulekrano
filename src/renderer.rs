@@ -6,6 +6,7 @@ use glium::{
     index::{NoIndices, PrimitiveType},
     uniform, Display, Program, Surface, VertexBuffer,
 };
+use na::Matrix4;
 
 use crate::capturer::Capturer;
 
@@ -51,13 +52,11 @@ pub struct Renderer {
     index_buffer: NoIndices,
     program: Program,
     capturer: Capturer,
+    transform: Matrix4<f32>,
 }
 
 impl Renderer {
-    pub fn new(
-        display: Arc<Display<WindowSurface>>,
-        output_to_capture: Option<&str>,
-    ) -> Self {
+    pub fn new(display: Arc<Display<WindowSurface>>, output_to_capture: Option<&str>) -> Self {
         let vertex_buffer = VertexBuffer::new(display.as_ref(), QUAD_VERTICES).unwrap();
         let index_buffer = NoIndices(PrimitiveType::TrianglesList);
         let program = Program::from_source(
@@ -68,10 +67,7 @@ impl Renderer {
         )
         .unwrap();
 
-        let capturer = Capturer::new(
-            Arc::clone(&display),
-            output_to_capture,
-        );
+        let capturer = Capturer::new(Arc::clone(&display), output_to_capture);
 
         Self {
             display,
@@ -79,6 +75,7 @@ impl Renderer {
             index_buffer,
             program,
             capturer,
+            transform: Matrix4::identity(),
         }
     }
 
@@ -87,10 +84,11 @@ impl Renderer {
 
         let mut frame = self.display.draw();
 
-        frame.clear_color(0.0, 0.0, 1.0, 1.0);
+        frame.clear_color(0.0, 0.0, 0.0, 1.0);
 
         let uniforms = uniform! {
             tex: texture.as_ref(),
+            transform: Into::<[[f32; 4]; 4]>::into(self.transform),
         };
 
         frame
@@ -104,5 +102,9 @@ impl Renderer {
             .unwrap();
 
         frame.finish().unwrap();
+    }
+
+    pub fn set_transform(&mut self, transform: &Matrix4<f32>) {
+        self.transform = transform.clone();
     }
 }
