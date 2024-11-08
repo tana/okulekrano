@@ -6,7 +6,7 @@ use glium::{
     index::{NoIndices, PrimitiveType},
     uniform, Display, Program, Surface, VertexBuffer,
 };
-use na::Matrix4;
+use na::{Matrix4, Translation3};
 
 use crate::capturer::Capturer;
 
@@ -52,7 +52,7 @@ pub struct Renderer {
     index_buffer: NoIndices,
     program: Program,
     capturer: Capturer,
-    transform: Matrix4<f32>,
+    screen_transform: Matrix4<f32>, // Position and rotation of the virtual screen in world coordinates
 }
 
 impl Renderer {
@@ -75,11 +75,12 @@ impl Renderer {
             index_buffer,
             program,
             capturer,
-            transform: Matrix4::identity(),
+            screen_transform: Translation3::new(0.0, 0.0, -1.0).to_homogeneous(),
         }
     }
 
-    pub fn render(&mut self) {
+    // camera_matrix: projection_matrix*world_to_camera
+    pub fn render(&mut self, camera_matrix: &Matrix4<f32>) {
         let texture = self.capturer.get_current_texture();
 
         let mut frame = self.display.draw();
@@ -88,7 +89,7 @@ impl Renderer {
 
         let uniforms = uniform! {
             tex: texture.as_ref(),
-            transform: Into::<[[f32; 4]; 4]>::into(self.transform),
+            transform: Into::<[[f32; 4]; 4]>::into(camera_matrix * self.screen_transform),
         };
 
         frame
@@ -102,9 +103,5 @@ impl Renderer {
             .unwrap();
 
         frame.finish().unwrap();
-    }
-
-    pub fn set_transform(&mut self, transform: &Matrix4<f32>) {
-        self.transform = transform.clone();
     }
 }

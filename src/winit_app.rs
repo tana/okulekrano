@@ -8,7 +8,6 @@ use glium::glutin::{
     prelude::{GlDisplay, NotCurrentGlContext},
     surface::{SurfaceAttributesBuilder, WindowSurface},
 };
-use na::Scale3;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -82,11 +81,9 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
-                    // TODO:
-                    println!("{}", self.glasses.get_pose());
+                    self.glasses.update_pose();
 
-                    renderer.set_transform(&Scale3::new(2.0, 2.0, 2.0).to_homogeneous());
-                    renderer.render();
+                    renderer.render(&self.glasses.camera_mat_left());
                 }
             }
             _ => (),
