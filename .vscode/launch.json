@@ -9,7 +9,7 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceRoot}/target/debug/ar-glass-screen",
-            "args": ["HDMI-A-2", "2>&1"],
+            "args": ["_fake_desktop", "2>&1"],
             "env": [
                 "WAYLAND_DISPLAY=wayland-0"
             ],

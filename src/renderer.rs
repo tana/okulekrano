@@ -8,7 +8,7 @@ use glium::{
 };
 use na::{Matrix4, Translation3};
 
-use crate::capturer::Capturer;
+use crate::capturer::{fake::FakeCapturer, wayland::WaylandCapturer, Capturer};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -51,7 +51,7 @@ pub struct Renderer {
     vertex_buffer: VertexBuffer<Vertex>,
     index_buffer: NoIndices,
     program: Program,
-    capturer: Capturer,
+    capturer: Box<dyn Capturer>,
     screen_transform: Matrix4<f32>, // Position and rotation of the virtual screen in world coordinates
 }
 
@@ -67,7 +67,11 @@ impl Renderer {
         )
         .unwrap();
 
-        let capturer = Capturer::new(Arc::clone(&display), output_to_capture);
+        let capturer: Box<dyn Capturer> = if let Some("_fake_desktop") = output_to_capture {
+            Box::new(FakeCapturer::new(display.as_ref()))
+        } else {
+            Box::new(WaylandCapturer::new(Arc::clone(&display), output_to_capture))
+        };
 
         Self {
             display,
@@ -81,7 +85,7 @@ impl Renderer {
 
     // camera_matrix: projection_matrix*world_to_camera
     pub fn render(&mut self, camera_matrix: &Matrix4<f32>) {
-        let texture = self.capturer.get_current_texture();
+        let texture = self.capturer.capture();
 
         let mut frame = self.display.draw();
 
