@@ -65,12 +65,10 @@ impl WaylandCapturer {
         queue.roundtrip(&mut state).unwrap();
 
         // Receive names (and other properties) of each output
-        for _ in 0..state.all_outputs.len() {
-            queue.blocking_dispatch(&mut state).unwrap();
-        }
+        queue.blocking_dispatch(&mut state).unwrap();
 
         for output in state.all_outputs.values() {
-            println!(
+            log::debug!(
                 "Output: {}",
                 output.as_ref().borrow().name.as_ref().unwrap()
             );
@@ -83,8 +81,8 @@ impl WaylandCapturer {
                 .iter()
                 .find(|(_, output)| output.as_ref().borrow().name.as_ref().unwrap() == output_name)
                 .unwrap();
-            println!(
-                "Using {}",
+            log::info!(
+                "Capturing {}",
                 output.1.as_ref().borrow().name.as_ref().unwrap()
             );
 
@@ -133,7 +131,7 @@ impl Capturer for WaylandCapturer {
             self.queue.roundtrip(&mut self.state).unwrap();
 
             let buf_format = DrmFourcc::try_from(self.state.buf_format).unwrap();
-            println!("{:?} {} {}", buf_format, width, height);
+            log::debug!("Requested dma-buf: {:?} {} {}", buf_format, width, height);
             if buf_format != DrmFourcc::Xrgb8888 {
                 panic!("Unsupported buffer format requested");
             }
@@ -150,7 +148,11 @@ impl Capturer for WaylandCapturer {
 
             // (7) Create Wayland buffer from the buffer.
             let texture = self.texture.as_ref().unwrap();
-            println!("{:?} {:?}", texture.fourcc(), texture.modifier());
+            log::debug!(
+                "Created dma-buf: {:?} {:?}",
+                texture.fourcc(),
+                texture.modifier()
+            );
             if texture.fourcc() != DrmFourcc::Abgr8888 {
                 panic!("Unsupported DMA-BUF format")
             }
@@ -172,7 +174,7 @@ impl Capturer for WaylandCapturer {
                 (),
             ));
             self.queue.roundtrip(&mut self.state).unwrap();
-            println!("{:?}", self.wl_buffer);
+            log::debug!("Buffer {:?}", self.wl_buffer);
         }
 
         // (8) Copy the captured frame into the buffer.
