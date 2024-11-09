@@ -1,7 +1,13 @@
 [package]
-name = "ar-glass-screen"
+name = "okulekrano"
+description = "Virtual screen for AR glasses"
 version = "0.1.0"
 edition = "2021"
+homepage = "https://github.com/tana/okulekrano"
+repository = "https://github.com/tana/okulekrano"
+readme = "README.md"
+keywords = ["ar", "wayland"]
+authors = ["Satoshi Tanaka <overthere555@gmail.com>"]
 
 [dependencies]
 ahrs = "0.7.0"
