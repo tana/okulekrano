@@ -2,13 +2,26 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
     pub capture: Capture,
+    #[serde(default)]
+    pub glasses: Glasses,
+    #[serde(default)]
     pub virtual_screen: VirtualScreen,
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct Capture {
+    #[serde(default)]
     pub output_name: Option<String>,
+}
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+pub struct Glasses {
+    #[serde(default)]
+    pub monitor_name: Option<String>,
+    #[serde(default)]
+    pub window_mode: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

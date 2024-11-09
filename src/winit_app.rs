@@ -13,7 +13,7 @@ use winit::{
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
     raw_window_handle::{HasDisplayHandle, HasWindowHandle},
-    window::{Window, WindowAttributes, WindowButtons},
+    window::{Fullscreen, Window, WindowAttributes, WindowButtons},
 };
 
 struct App {
@@ -25,14 +25,26 @@ struct App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let window: Arc<Window> = event_loop
-            .create_window(
-                WindowAttributes::default()
-                    .with_resizable(false)
-                    .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE),
-            )
-            .unwrap()
-            .into();
+        let monitor = if let Some(ref monitor_name) = self.config.glasses.monitor_name {
+            event_loop
+                .available_monitors()
+                .find(|monitor| match monitor.name() {
+                    Some(name) => name == monitor_name.as_str(),
+                    None => false,
+                })
+        } else {
+            None
+        };
+
+        let window_attrs = if self.config.glasses.window_mode {
+            WindowAttributes::default()
+                .with_resizable(false)
+                .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
+        } else {
+            WindowAttributes::default().with_fullscreen(Some(Fullscreen::Borderless(monitor)))
+        };
+
+        let window: Arc<Window> = event_loop.create_window(window_attrs).unwrap().into();
         let rwh = window.window_handle().unwrap().as_raw();
         let rdh = window.display_handle().unwrap().as_raw();
         let width = NonZero::new(window.inner_size().width).unwrap();
