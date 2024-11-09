@@ -16,12 +16,28 @@ pub struct Capture {
     pub output_name: Option<String>,
 }
 
-#[derive(Clone, Default, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Glasses {
     #[serde(default)]
     pub monitor_name: Option<String>,
     #[serde(default)]
     pub window_mode: bool,
+    #[serde(default = "default_delay_after_mode_switch")]
+    pub delay_after_mode_switch: f32,
+}
+
+impl Default for Glasses {
+    fn default() -> Self {
+        Self {
+            monitor_name: None,
+            window_mode: false,
+            delay_after_mode_switch: default_delay_after_mode_switch(),
+        }
+    }
+}
+
+fn default_delay_after_mode_switch() -> f32 {
+    15.0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

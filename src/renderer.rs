@@ -4,13 +4,14 @@ use glium::{
     glutin::surface::WindowSurface,
     implement_vertex,
     index::{NoIndices, PrimitiveType},
-    uniform, Display, Program, Surface, VertexBuffer,
+    uniform, Display, DrawParameters, Frame, Program, Rect, Surface, Texture2d, VertexBuffer,
 };
 use na::{Matrix4, Scale3, Translation3};
 
 use crate::{
     capturer::{fake::FakeCapturer, wayland::WaylandCapturer, Capturer},
     config::Config,
+    glasses::GlassesController,
 };
 
 #[repr(C)]
@@ -101,16 +102,58 @@ impl Renderer {
         }
     }
 
-    // camera_matrix: projection_matrix*world_to_camera
-    pub fn render(&mut self, camera_matrix: &Matrix4<f32>) {
+    pub fn render(&mut self, glasses: &GlassesController) {
         let texture = self.capturer.capture();
 
         let mut frame = self.display.draw();
 
         frame.clear_color(0.0, 0.0, 0.0, 1.0);
 
+        let (width, height) = frame.get_dimensions();
+        let aspect = width as f32 / 2.0 / height as f32;
+        self.render_view(
+            &mut frame,
+            &texture,
+            &glasses.camera_mat(ar_drivers::Side::Left, aspect),
+            -1.0,
+            0.0,
+        );
+        self.render_view(
+            &mut frame,
+            &texture,
+            &glasses.camera_mat(ar_drivers::Side::Right, aspect),
+            0.0,
+            1.0,
+        );
+
+        frame.finish().unwrap();
+    }
+
+    // camera_matrix: projection_matrix*world_to_camera
+    fn render_view(
+        &mut self,
+        frame: &mut Frame,
+        texture: &Texture2d,
+        camera_matrix: &Matrix4<f32>,
+        viewport_left_ndc: f32,
+        viewport_right_ndc: f32,
+    ) {
+        let (width, height) = frame.get_dimensions();
+        let left = remap(viewport_left_ndc, -1.0, 1.0, 0.0, width as f32).round() as u32;
+        let right = remap(viewport_right_ndc, -1.0, 1.0, 0.0, width as f32).round() as u32;
+        let viewport = Rect {
+            left,
+            bottom: 0,
+            width: right - left,
+            height,
+        };
+        let parameters = DrawParameters {
+            viewport: Some(viewport),
+            ..Default::default()
+        };
+
         let uniforms = uniform! {
-            tex: texture.as_ref(),
+            tex: texture,
             transform: Into::<[[f32; 4]; 4]>::into(camera_matrix * self.screen_transform),
         };
 
@@ -120,10 +163,12 @@ impl Renderer {
                 &self.index_buffer,
                 &self.program,
                 &uniforms,
-                &Default::default(),
+                &parameters,
             )
             .unwrap();
-
-        frame.finish().unwrap();
     }
+}
+
+fn remap(x: f32, from_min: f32, from_max: f32, to_min: f32, to_max: f32) -> f32 {
+    to_min + (x - from_min) * (to_max - to_min) / (from_max - from_min)
 }

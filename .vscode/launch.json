@@ -8,9 +8,9 @@
             "type": "lldb-dap",
             "request": "launch",
             "name": "Launch",
-            "program": "${workspaceRoot}/target/debug/ar-glass-screen",
+            "program": "${workspaceRoot}/target/debug/okulekrano",
             "args": ["2>&1"],
-            "env": [],
+            "env": ["WAYLAND_DISPLAY=wayland-0", "RUST_LOG=debug"],
             "cwd": "${workspaceRoot}"
         },
     ]

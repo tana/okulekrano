@@ -1,4 +1,8 @@
-use std::{num::NonZero, sync::Arc};
+use std::{
+    num::NonZero,
+    sync::{mpsc, Arc},
+    time::Duration,
+};
 
 use crate::{config::Config, glasses::GlassesController, renderer::Renderer};
 use glium::glutin::{
@@ -22,15 +26,24 @@ struct App {
     renderer: Option<Renderer>,
     config: Config,
     glasses: Option<GlassesController>,
+    stop_receiver: mpsc::Receiver<()>,
 }
 
 impl App {
     fn new(config: Config) -> Self {
+        let (stop_sender, stop_receiver) = mpsc::channel();
+        ctrlc::set_handler(move || {
+            log::info!("Closing");
+            stop_sender.send(()).unwrap()
+        })
+        .unwrap();
+
         Self {
             window: None,
             renderer: None,
             config,
             glasses: None,
+            stop_receiver,
         }
     }
 }
@@ -38,14 +51,25 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         self.glasses = Some(GlassesController::new());
+        log::info!("Waiting for mode change...");
+        std::thread::sleep(Duration::from_secs_f32(
+            self.config.glasses.delay_after_mode_switch,
+        ));
 
         let monitor = if let Some(ref monitor_name) = self.config.glasses.monitor_name {
-            event_loop
+            let monitor = event_loop
                 .available_monitors()
                 .find(|monitor| match monitor.name() {
                     Some(name) => name == monitor_name.as_str(),
                     None => false,
-                })
+                });
+            log::info!(
+                "Displaying to monitor {} ({}x{})",
+                monitor.as_ref().unwrap().name().unwrap(),
+                monitor.as_ref().unwrap().size().width,
+                monitor.as_ref().unwrap().size().height,
+            );
+            monitor
         } else {
             None
         };
@@ -56,7 +80,9 @@ impl ApplicationHandler for App {
                 .with_resizable(false)
                 .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
         } else {
-            WindowAttributes::default().with_fullscreen(Some(Fullscreen::Borderless(monitor)))
+            WindowAttributes::default()
+                .with_fullscreen(Some(Fullscreen::Borderless(monitor.clone())))
+                .with_inner_size(monitor.clone().unwrap().size()) // Note: this is necessary, even in fullscreen mode
         };
 
         let window: Arc<Window> = event_loop.create_window(window_attrs).unwrap().into();
@@ -104,12 +130,16 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                if let Some(ref mut renderer) = self.renderer {
-                    self.glasses.as_mut().unwrap().update_pose();
+                // Close window if Ctrl-C is pressed in the terminal
+                if self.stop_receiver.try_recv().is_ok() {
+                    event_loop.exit();
+                }
 
-                    let window_size = self.window.as_ref().unwrap().inner_size();
-                    let aspect = window_size.width as f32 / window_size.height as f32;
-                    renderer.render(&self.glasses.as_ref().unwrap().camera_mat_left(aspect));
+                if let Some(ref mut renderer) = self.renderer {
+                    let glasses = self.glasses.as_mut().unwrap();
+                    glasses.update_pose();
+
+                    renderer.render(&glasses);
                 }
             }
             _ => (),
