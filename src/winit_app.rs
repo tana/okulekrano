@@ -1,7 +1,6 @@
 use std::{
     num::NonZero,
     sync::{mpsc, Arc},
-    time::Duration,
 };
 
 use crate::{config::Config, glasses::GlassesController, renderer::Renderer};
@@ -25,12 +24,12 @@ struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     config: Config,
-    glasses: Option<GlassesController>,
+    glasses: GlassesController,
     stop_receiver: mpsc::Receiver<()>,
 }
 
 impl App {
-    fn new(config: Config) -> Self {
+    fn new(config: Config, glasses: GlassesController) -> Self {
         let (stop_sender, stop_receiver) = mpsc::channel();
         ctrlc::set_handler(move || {
             log::info!("Closing");
@@ -42,7 +41,7 @@ impl App {
             window: None,
             renderer: None,
             config,
-            glasses: None,
+            glasses,
             stop_receiver,
         }
     }
@@ -50,12 +49,6 @@ impl App {
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        self.glasses = Some(GlassesController::new());
-        log::info!("Waiting for mode change...");
-        std::thread::sleep(Duration::from_secs_f32(
-            self.config.glasses.delay_after_mode_switch,
-        ));
-
         let monitor = if let Some(ref monitor_name) = self.config.glasses.monitor_name {
             let monitor = event_loop
                 .available_monitors()
@@ -136,10 +129,9 @@ impl ApplicationHandler for App {
                 }
 
                 if let Some(ref mut renderer) = self.renderer {
-                    let glasses = self.glasses.as_mut().unwrap();
-                    glasses.update_pose();
+                    self.glasses.update_pose();
 
-                    renderer.render(&glasses);
+                    renderer.render(&self.glasses);
                 }
             }
             _ => (),
@@ -152,10 +144,26 @@ impl ApplicationHandler for App {
 }
 
 pub fn run() {
+    let config: Config = confy::load("okulekrano", None).unwrap();
+
+    let glasses = GlassesController::new();
+
+    if let Some(ref monitor_name) = config.glasses.monitor_name {
+        log::info!("Waiting until the AR glasses becomes 3D mode...");
+        // Wait until the AR glasses becomes 3D mode (has width larger than 3000 pixels)
+        for info in crate::mode_refresh::query_monitors() {
+            log::debug!("{:?}", info);
+            if info.name == *monitor_name && info.width > 3000 {
+                break;
+            }
+        }
+        log::info!("Mode change completed");
+    }
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new(confy::load("okulekrano", None).unwrap());
+    let mut app = App::new(config, glasses);
 
     event_loop.run_app(&mut app).unwrap();
 }
