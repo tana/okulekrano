@@ -9,10 +9,8 @@
             "request": "launch",
             "name": "Launch",
             "program": "${workspaceRoot}/target/debug/ar-glass-screen",
-            "args": ["_fake_desktop", "2>&1"],
-            "env": [
-                "WAYLAND_DISPLAY=wayland-0"
-            ],
+            "args": ["2>&1"],
+            "env": [],
             "cwd": "${workspaceRoot}"
         },
     ]

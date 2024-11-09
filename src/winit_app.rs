@@ -1,6 +1,6 @@
 use std::{num::NonZero, sync::Arc};
 
-use crate::{glasses::GlassesController, renderer::Renderer};
+use crate::{config::Config, glasses::GlassesController, renderer::Renderer};
 use glium::glutin::{
     self,
     config::ConfigTemplateBuilder,
@@ -19,7 +19,7 @@ use winit::{
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-    output_to_capture: Option<String>,
+    config: Config,
     glasses: GlassesController,
 }
 
@@ -67,7 +67,7 @@ impl ApplicationHandler for App {
 
         self.renderer = Some(Renderer::new(
             Arc::new(display),
-            self.output_to_capture.as_ref().map(|s| s.as_str()),
+            self.config.output_to_capture.as_ref().map(|s| s.as_str()),
         ));
     }
 
@@ -99,18 +99,10 @@ pub fn run() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let args: Vec<String> = std::env::args().collect();
-
-    let output_to_capture = if args.len() >= 2 {
-        Some(args[1].clone())
-    } else {
-        None
-    };
-
     let mut app = App {
         window: None,
         renderer: None,
-        output_to_capture,
+        config: confy::load("okulekrano", None).unwrap(),
         glasses: GlassesController::new(),
     };
 

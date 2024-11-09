@@ -1,4 +1,5 @@
 mod capturer;
+mod config;
 mod glasses;
 mod renderer;
 mod winit_app;
