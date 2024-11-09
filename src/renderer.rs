@@ -85,7 +85,7 @@ impl Renderer {
         let screen_transform = Translation3::new(0.0, 0.0, -config.virtual_screen.distance)
             .to_homogeneous()
             * Scale3::new(
-                config.virtual_screen.height / aspect,
+                config.virtual_screen.height * aspect,
                 config.virtual_screen.height,
                 1.0,
             )

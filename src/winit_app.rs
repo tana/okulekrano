@@ -10,6 +10,7 @@ use glium::glutin::{
 };
 use winit::{
     application::ApplicationHandler,
+    dpi::PhysicalSize,
     event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
     raw_window_handle::{HasDisplayHandle, HasWindowHandle},
@@ -20,11 +21,24 @@ struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     config: Config,
-    glasses: GlassesController,
+    glasses: Option<GlassesController>,
+}
+
+impl App {
+    fn new(config: Config) -> Self {
+        Self {
+            window: None,
+            renderer: None,
+            config,
+            glasses: None,
+        }
+    }
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.glasses = Some(GlassesController::new());
+
         let monitor = if let Some(ref monitor_name) = self.config.glasses.monitor_name {
             event_loop
                 .available_monitors()
@@ -38,6 +52,7 @@ impl ApplicationHandler for App {
 
         let window_attrs = if self.config.glasses.window_mode {
             WindowAttributes::default()
+                .with_inner_size(PhysicalSize::new(800, 450))
                 .with_resizable(false)
                 .with_enabled_buttons(WindowButtons::CLOSE | WindowButtons::MINIMIZE)
         } else {
@@ -90,9 +105,11 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut renderer) = self.renderer {
-                    self.glasses.update_pose();
+                    self.glasses.as_mut().unwrap().update_pose();
 
-                    renderer.render(&self.glasses.camera_mat_left());
+                    let window_size = self.window.as_ref().unwrap().inner_size();
+                    let aspect = window_size.width as f32 / window_size.height as f32;
+                    renderer.render(&self.glasses.as_ref().unwrap().camera_mat_left(aspect));
                 }
             }
             _ => (),
@@ -108,12 +125,7 @@ pub fn run() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App {
-        window: None,
-        renderer: None,
-        config: confy::load("okulekrano", None).unwrap(),
-        glasses: GlassesController::new(),
-    };
+    let mut app = App::new(confy::load("okulekrano", None).unwrap());
 
     event_loop.run_app(&mut app).unwrap();
 }

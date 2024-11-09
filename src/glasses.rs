@@ -1,7 +1,7 @@
 use ahrs::Ahrs;
 use ar_drivers::{ARGlasses, GlassesEvent};
 use core::f32;
-use na::{Matrix4, Perspective3, Projective3, Rotation3, UnitQuaternion, Vector3};
+use na::{Matrix4, Perspective3, Rotation3, UnitQuaternion, Vector3};
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
@@ -12,7 +12,7 @@ pub struct GlassesController {
     join_handle: JoinHandle<()>,
     quat_receiver: mpsc::Receiver<UnitQuaternion<f32>>,
     pose: Rotation3<f32>,
-    proj_left: Projective3<f32>,
+    fov: f32,
 }
 
 impl GlassesController {
@@ -20,8 +20,7 @@ impl GlassesController {
         let glasses = ar_drivers::any_glasses()
             .expect("AR glasses not found. Maybe permission issues of hidraw device.");
 
-        let aspect = 16.0 / 9.0;
-        let fovy = glasses.display_fov() / aspect;
+        let fov = glasses.display_fov();
 
         let (quat_sender, quat_receiver) = mpsc::sync_channel(0);
 
@@ -33,9 +32,7 @@ impl GlassesController {
             join_handle,
             quat_receiver,
             pose: Rotation3::identity(),
-            proj_left: Perspective3::new(aspect, fovy, 0.1, 10.0)
-                .as_projective()
-                .clone(),
+            fov,
         }
     }
 
@@ -44,8 +41,11 @@ impl GlassesController {
         self.pose = quat.to_rotation_matrix();
     }
 
-    pub fn camera_mat_left(&self) -> Matrix4<f32> {
-        self.proj_left.to_homogeneous() * self.pose.inverse().to_homogeneous()
+    pub fn camera_mat_left(&self, aspect: f32) -> Matrix4<f32> {
+        let proj = Perspective3::new(aspect, self.fov / aspect, 0.1, 10.0)
+            .as_projective()
+            .clone();
+        proj.to_homogeneous() * self.pose.inverse().to_homogeneous()
     }
 }
 
