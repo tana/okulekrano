@@ -65,10 +65,7 @@ impl ApplicationHandler for App {
 
         self.window = Some(window);
 
-        self.renderer = Some(Renderer::new(
-            Arc::new(display),
-            self.config.output_to_capture.as_ref().map(|s| s.as_str()),
-        ));
+        self.renderer = Some(Renderer::new(Arc::new(display), &self.config));
     }
 
     fn window_event(

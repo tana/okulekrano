@@ -6,9 +6,12 @@ use glium::{
     index::{NoIndices, PrimitiveType},
     uniform, Display, Program, Surface, VertexBuffer,
 };
-use na::{Matrix4, Translation3};
+use na::{Matrix4, Scale3, Translation3};
 
-use crate::capturer::{fake::FakeCapturer, wayland::WaylandCapturer, Capturer};
+use crate::{
+    capturer::{fake::FakeCapturer, wayland::WaylandCapturer, Capturer},
+    config::Config,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -56,7 +59,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(display: Arc<Display<WindowSurface>>, output_to_capture: Option<&str>) -> Self {
+    pub fn new(display: Arc<Display<WindowSurface>>, config: &Config) -> Self {
         let vertex_buffer = VertexBuffer::new(display.as_ref(), QUAD_VERTICES).unwrap();
         let index_buffer = NoIndices(PrimitiveType::TrianglesList);
         let program = Program::from_source(
@@ -67,11 +70,26 @@ impl Renderer {
         )
         .unwrap();
 
-        let capturer: Box<dyn Capturer> = if let Some("_fake_desktop") = output_to_capture {
-            Box::new(FakeCapturer::new(display.as_ref()))
-        } else {
-            Box::new(WaylandCapturer::new(Arc::clone(&display), output_to_capture))
-        };
+        let capturer: Box<dyn Capturer> =
+            if let Some("_fake_desktop") = config.capture.output_name.as_deref() {
+                Box::new(FakeCapturer::new(display.as_ref()))
+            } else {
+                Box::new(WaylandCapturer::new(
+                    Arc::clone(&display),
+                    config.capture.output_name.as_deref(),
+                ))
+            };
+
+        let resolution = capturer.resolution();
+        let aspect = resolution.0 as f32 / resolution.1 as f32;
+        let screen_transform = Translation3::new(0.0, 0.0, -config.virtual_screen.distance)
+            .to_homogeneous()
+            * Scale3::new(
+                config.virtual_screen.height / aspect,
+                config.virtual_screen.height,
+                1.0,
+            )
+            .to_homogeneous();
 
         Self {
             display,
@@ -79,7 +97,7 @@ impl Renderer {
             index_buffer,
             program,
             capturer,
-            screen_transform: Translation3::new(0.0, 0.0, -1.0).to_homogeneous(),
+            screen_transform,
         }
     }
 

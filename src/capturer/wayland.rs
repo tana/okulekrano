@@ -1,6 +1,6 @@
 use drm_fourcc::DrmFourcc;
 use glium::{glutin::surface::WindowSurface, Display, Texture2d};
-use std::{collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 use texture::DmabufTexture;
 use wayland_client::{
     protocol::{
@@ -29,11 +29,18 @@ pub struct WaylandCapturer {
     wl_buffer: Option<WlBuffer>,
 }
 
+#[derive(Clone, Debug)]
+struct OutputInfo {
+    output: WlOutput,
+    name: Option<String>,
+    width: Option<i32>,
+    height: Option<i32>,
+}
+
 #[derive(Default)]
 struct State {
-    all_outputs: Vec<WlOutput>,
-    output_from_name: HashMap<String, WlOutput>,
-    output: Option<WlOutput>,
+    all_outputs: HashMap<WlOutput, Arc<RefCell<OutputInfo>>>,
+    output: Option<Arc<RefCell<OutputInfo>>>,
     manager: Option<ZwlrScreencopyManagerV1>,
     dmabuf_factory: Option<ZwpLinuxDmabufV1>,
     buf_width: u32,
@@ -44,10 +51,7 @@ struct State {
 }
 
 impl WaylandCapturer {
-    pub fn new(
-        glium_display: Arc<Display<WindowSurface>>,
-        output_to_capture: Option<&str>,
-    ) -> Self {
+    pub fn new(glium_display: Arc<Display<WindowSurface>>, output_name: Option<&str>) -> Self {
         let conn = Connection::connect_to_env().unwrap();
         let display = conn.display();
 
@@ -61,26 +65,32 @@ impl WaylandCapturer {
         queue.roundtrip(&mut state).unwrap();
 
         // Receive names (and other properties) of each output
-        while state.output_from_name.len() < state.all_outputs.len() {
+        for _ in 0..state.all_outputs.len() {
             queue.blocking_dispatch(&mut state).unwrap();
         }
 
-        for output_name in state.output_from_name.keys() {
-            println!("Output: {}", output_name);
+        for output in state.all_outputs.values() {
+            println!(
+                "Output: {}",
+                output.as_ref().borrow().name.as_ref().unwrap()
+            );
         }
 
         // (3) Select output.
-        let output = if let Some(output_to_capture) = output_to_capture {
+        let output = if let Some(output_name) = output_name {
             let output = state
-                .output_from_name
+                .all_outputs
                 .iter()
-                .find(|(name, _)| *name == output_to_capture)
+                .find(|(_, output)| output.as_ref().borrow().name.as_ref().unwrap() == output_name)
                 .unwrap();
-            println!("Using {}", output.0);
+            println!(
+                "Using {}",
+                output.1.as_ref().borrow().name.as_ref().unwrap()
+            );
 
             output.1.clone()
         } else {
-            state.all_outputs[0].clone()
+            state.all_outputs.values().next().unwrap().clone()
         };
         state.output = Some(output);
 
@@ -103,7 +113,7 @@ impl Capturer for WaylandCapturer {
         // It will fire several events such as `zwlr_screencopy_frame_v1::buffer_done`.
         let frame = self.state.manager.as_ref().unwrap().capture_output(
             1, // include mouse cursor
-            self.state.output.as_ref().unwrap(),
+            &self.state.output.as_ref().unwrap().as_ref().borrow().output,
             &self.queue.handle(),
             (),
         );
@@ -180,6 +190,27 @@ impl Capturer for WaylandCapturer {
 
         self.texture.as_ref().unwrap().texture()
     }
+
+    fn resolution(&self) -> (u32, u32) {
+        (
+            self.state
+                .output
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .width
+                .unwrap() as u32,
+            self.state
+                .output
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .borrow()
+                .height
+                .unwrap() as u32,
+        )
+    }
 }
 
 impl Dispatch<WlRegistry, (), Self> for State {
@@ -199,9 +230,16 @@ impl Dispatch<WlRegistry, (), Self> for State {
                 version,
             } => {
                 if interface == WlOutput::interface().name {
-                    state
-                        .all_outputs
-                        .push(proxy.bind(name, version, qhandle, ()));
+                    let output: WlOutput = proxy.bind(name, version, qhandle, ());
+                    state.all_outputs.insert(
+                        output.clone(),
+                        Arc::new(RefCell::new(OutputInfo {
+                            output,
+                            name: None,
+                            width: None,
+                            height: None,
+                        })),
+                    );
                 } else if interface == ZwlrScreencopyManagerV1::interface().name {
                     state.manager = Some(proxy.bind(name, version, qhandle, ()));
                 } else if interface == ZwpLinuxDmabufV1::interface().name {
@@ -224,7 +262,11 @@ impl Dispatch<WlOutput, (), Self> for State {
     ) {
         match event {
             wl_output::Event::Name { name } => {
-                state.output_from_name.insert(name, proxy.clone());
+                state.all_outputs[proxy].borrow_mut().name = Some(name);
+            }
+            wl_output::Event::Mode { width, height, .. } => {
+                state.all_outputs[proxy].borrow_mut().width = Some(width);
+                state.all_outputs[proxy].borrow_mut().height = Some(height);
             }
             _ => (),
         }
