@@ -8,6 +8,7 @@ repository = "https://github.com/tana/okulekrano"
 readme = "README.md"
 keywords = ["ar", "wayland"]
 authors = ["Satoshi Tanaka <overthere555@gmail.com>"]
+license = "MPL-2.0"
 
 [dependencies]
 ahrs = "0.7.0"
